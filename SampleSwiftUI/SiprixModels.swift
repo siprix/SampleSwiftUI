@@ -239,8 +239,10 @@ class CallModel : ObservableObject, Identifiable, Equatable {
     private(set) var connectedSuccessfully = false
     private(set) var endedByLocalSide = false
     
+    #if os(iOS)
     public var cxAnswerAction : CXAnswerCallAction?
     public var cxEndAction : CXEndCallAction?
+    #endif
            
     init(_ module: SiprixModule, logs: LogsModel?, callKit : SiprixCxProvider?,
          callId: Int, accId:Int, from:String, to:String, withVideo:Bool) {
@@ -485,10 +487,11 @@ class CallModel : ObservableObject, Identifiable, Equatable {
         //if callKitAnswered {
         //               let bRet = answerCallWithUUID(uuid: session.uuid, isVideo: existsVideo)
         //               session.callKitCompletionCallback?(bRet)
-        //               reportCall(uuid: session.uuid, hasVideo: existsVideo, from: remoteParty)
+        //               reportUpdateCall(uuid: session.uuid, hasVideo: existsVideo, from: remoteParty)
         //TODO update call
     }
     
+    #if os(iOS)
     public func switchSpeaker(_ on: Bool) {
         let res = siprixModule_.overrideAudioOutput(toSpeaker: on)
         if(res) { self.isSpeakerOn = on  }
@@ -510,6 +513,11 @@ class CallModel : ObservableObject, Identifiable, Equatable {
     public func setVideoView(_ view: UIView?, isPreview : Bool) {
         siprixModule_.callSetVideoWindow(isPreview ? 0 : Int32(myCallId), view: view)
     }
+    #elseif os(macOS)
+    public func setVideoView(_ view: NSView?, isPreview : Bool) {
+        siprixModule_.callSetVideoWindow(isPreview ? 0 : Int32(myCallId), view: view)
+    }
+    #endif
     
     //-----------------------------------------------------------------
     //Events
@@ -637,6 +645,7 @@ class CallsListModel : ObservableObject {
         callKit?.cxActionNewIncomingCall(call)
     }
     
+    #if os(iOS)
     func activateSession(_ audioSession: AVAudioSession) {
         siprixModule_.activate(audioSession)
     }
@@ -644,6 +653,7 @@ class CallsListModel : ObservableObject {
     func deactivateSession(_ audioSession: AVAudioSession) {
         siprixModule_.deactivate(audioSession)
     }
+    #endif
     
     //---------------------
     //Events
@@ -812,8 +822,9 @@ class SiprixModel : NSObject, SiprixEventDelegate {
         networkModel      = NetworkModel(logs:logs)
 
         //If callKit support not required - set to nil
+        #if os(iOS) && !targetEnvironment(simulator)           
         siprixCxProvider = SiprixCxProvider(callsListModel, logs:logs, singleCallMode:singleCallMode)
-        #if targetEnvironment(simulator)
+        #else
         siprixCxProvider = nil
         #endif
         
@@ -835,7 +846,6 @@ class SiprixModel : NSObject, SiprixEventDelegate {
         let iniData = SiprixIniData()
         iniData.license = "...license-credentials..."
         iniData.homeFolder = documentsURL.path + "/"
-        //iniData.noCameraImgPath = Bundle.main.path(forResource: "noCamera", ofType: "jpg")
         iniData.singleCallMode = NSNumber(value: singleCallMode)
         iniData.logLevelIde  = NSNumber(value: LogLevel.debug.rawValue)
         iniData.logLevelFile = NSNumber(value: LogLevel.info.rawValue)
@@ -847,7 +857,9 @@ class SiprixModel : NSObject, SiprixEventDelegate {
             logs?.printl("Siprix module initialized successfully")
             logs?.printl("Version: \(siprixModule_.version())")
             
+            #if os(iOS)
             siprixModule_.enableCallKit(siprixCxProvider != nil)
+            #endif
             
             accountsListModel.load()
         }
@@ -867,9 +879,15 @@ class SiprixModel : NSObject, SiprixEventDelegate {
         return siprixModule_.getErrorText(errCode)
     }
     
+    #if os(iOS)
     public func createVideoView() -> UIView {
         return siprixModule_.createVideoWindow()
     }
+    #elseif os(macOS)
+    public func createVideoView() -> NSView {
+        return siprixModule_.createVideoWindow()
+    }
+    #endif
     
     ///------------------------------------------------------------------------------
     ///SiprixEventDelegate
@@ -901,11 +919,8 @@ class SiprixModel : NSObject, SiprixEventDelegate {
     
     public func onRingerState(_ started: Bool) {
         DispatchQueue.main.async {
-            if(started) {
-                self.ringer?.play()
-            } else {
-                self.ringer?.stop()
-            }
+            if(started) { self.ringer?.play() }
+            else        { self.ringer?.stop() }
         }
     }
 
@@ -966,7 +981,7 @@ class SiprixModel : NSObject, SiprixEventDelegate {
         
 }//SiprixModel
 
-
+#if os(iOS)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///SiprixCxProvider
 
@@ -1214,6 +1229,20 @@ class SiprixCxProvider : NSObject, CXProviderDelegate {
     
 }//SiprixCxProvider
 
+#elseif os(macOS)
+class SiprixCxProvider : NSObject {
+    func cxActionNewOutgoingCall(_ call : CallModel) {}
+    func cxActionAnswer(_ call: CallModel) {}
+    func cxActionSetMuted(_ call: CallModel, muted: Bool) {}
+    func cxActionPlayDtmf(_ call: CallModel, digits: String) {}
+    func cxActionSetHeld(_ call: CallModel, hold: Bool) {}
+    func cxActionNewIncomingCall(_ call : CallModel) {}
+    func cxActionProceeding(_ call: CallModel?) {}
+    func cxActionTerminated(_ call: CallModel) {}
+    func cxActionConnected(_ call: CallModel?) {}
+    func cxActionEndCall(_ call: CallModel) {}
+}
+#endif
     
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///Ringer
@@ -1247,6 +1276,7 @@ class Ringer {
     }
 
     private func enableSpeaker(_ enabled: Bool) {
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         var options = session.categoryOptions
 
@@ -1257,10 +1287,11 @@ class Ringer {
         }
         do {
             try session.setCategory(AVAudioSession.Category.playAndRecord, options: options)
-            logs?.printl("Ringer started plying successfully")
+            logs?.printl("Ringer started playing successfully")
         } catch {
             logs?.printl("Can't start ringer: error \(error)")
         }
+        #endif
     }
 
     func isSpeakerEnabled() -> Bool {
