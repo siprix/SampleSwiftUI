@@ -36,7 +36,7 @@ Product web site: https://siprix-voip.com
 Manual: https://docs.siprix-voip.com
 
 
-## Screeshots
+## Screenshots
 
 <a href="https://docs.siprix-voip.com/screenshots/SampleSwiftUI_Accounts.png"  title="Accounts screenshot">
 <img src="https://docs.siprix-voip.com/screenshots/SampleSwiftUI_Accounts_Mini.jpg" width="50"></a>|<a href="https://docs.siprix-voip.com/screenshots/SampleSwiftUI_CallKit.png"  title="example image">

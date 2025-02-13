@@ -978,6 +978,18 @@ class SiprixModel : NSObject, SiprixEventDelegate {
             self.callsListModel.onCallHeld(callId, holdState:holdState)
         }
     }
+    
+    func onSubscriptionState(_ subscrId: Int, subscrState: SubscrState, response: String) {
+        //Handle subscription state
+    }
+    
+    func onMessageSentState(_ messageId: Int, success: Bool, response: String) {
+        //Handle message sent state
+    }
+    
+    func onMessageIncoming(_ accId: Int, hdrFrom: String, body: String) {
+        //handle received message request
+    }
         
 }//SiprixModel
 

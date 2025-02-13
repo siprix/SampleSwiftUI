@@ -34,6 +34,12 @@ typedef NS_ENUM(NSInteger, RegState) {
     RegStateInProgress
 };
 
+typedef NS_ENUM(NSInteger, SubscrState) {
+    SubscrCreated = 0,
+    SubscrUpdated,
+    SubscrDestroyed
+};
+
 typedef NS_ENUM(NSInteger, NetworkState) {
     NetworkStateLost = 0,
     NetworkStateRestored,
@@ -67,6 +73,7 @@ typedef NS_ENUM(NSInteger, CallState) {
 };
 
 typedef NS_ENUM(NSInteger, LogLevel) {
+    LogLevelStack=0,
     LogLevelDebug=1,
     LogLevelInfo=2,
     LogLevelWarning=3,
@@ -133,6 +140,7 @@ EXPORT
 @property(nonatomic, retain) NSNumber * _Nullable singleCallMode;
 @property(nonatomic, retain) NSNumber * _Nullable shareUdpTransport;
 @property(nonatomic, retain) NSArray  * _Nullable dnsServers;
+@property(nonatomic, retain) NSString * _Nullable brandName;
 @end
 
 EXPORT
@@ -153,6 +161,8 @@ EXPORT
 @property(nonatomic, retain) NSNumber * _Nullable rtcpMuxEnabled;
 @property(nonatomic, retain) NSNumber * _Nullable keepAliveTime;
 @property(nonatomic, retain) NSNumber * _Nullable rewriteContactIp;
+@property(nonatomic, retain) NSNumber * _Nullable verifyIncomingCall;
+@property(nonatomic, retain) NSNumber * _Nullable forceSipProxy;
 @property(nonatomic, retain) NSNumber * _Nullable secureMedia;
 @property(nonatomic, retain) NSNumber * _Nullable transpPreferIPv6;
 @property(nonatomic, retain) NSString * _Nullable instanceId;
@@ -173,6 +183,25 @@ EXPORT
 @property(nonatomic, retain) NSNumber * _Nullable withVideo;
 @property(nonatomic, retain) NSNumber * _Nullable inviteTimeoutSec;
 @property(nonatomic, retain) NSDictionary * _Nullable xheaders;
+@property(nonatomic, retain) NSString* _Nullable displName;
+@end
+
+EXPORT
+@interface SiprixSubscrData : NSObject
+@property(nonatomic, assign) int mySubscrId;
+@property(nonatomic, assign) int fromAccId;
+@property(nonatomic, retain) NSString* _Nonnull toExt;
+@property(nonatomic, retain) NSString* _Nonnull mimeSubtype;
+@property(nonatomic, retain) NSString* _Nonnull eventType;
+@property(nonatomic, retain) NSNumber* _Nullable expireTime;
+@end
+
+EXPORT
+@interface SiprixMsgData : NSObject
+@property(nonatomic, assign) int myMessageId;
+@property(nonatomic, assign) int fromAccId;
+@property(nonatomic, retain) NSString* _Nonnull toExt;
+@property(nonatomic, retain) NSString* _Nonnull body;
 @end
 
 EXPORT
@@ -235,6 +264,9 @@ EXPORT
 - (void)onAccountRegState:(NSInteger)accId
             regState:(RegState)regState
             response:(NSString * _Nonnull)response;
+- (void)onSubscriptionState:(NSInteger)subscrId
+            subscrState:(SubscrState)subscrState
+            response:(NSString * _Nonnull)response;
 - (void)onNetworkState:(NSString * _Nonnull)name
               netState:(NetworkState)netState;
 - (void)onPlayerState:(NSInteger)playerId
@@ -273,6 +305,12 @@ EXPORT
 
 - (void)onCallHeld:(NSInteger)callId
           holdState:(HoldState)holdState;
+
+- (void)onMessageSentState:(NSInteger)messageId success:(BOOL)success
+          response:(NSString * _Nonnull)response;
+- (void)onMessageIncoming:(NSInteger)accId
+          hdrFrom:(NSString * _Nonnull)hdrFrom
+          body:(NSString * _Nonnull)body;
 @end
 
 
@@ -283,6 +321,7 @@ EXPORT
             iniData:(SiprixIniData* _Nonnull)iniData;
 - (int)unInitialize;
 - (NSString* _Nonnull) version;
+- (NSString* _Nonnull) homeFolder;
 - (int) versionCode;
 
 #if TARGET_OS_IPHONE
@@ -299,6 +338,7 @@ EXPORT
 - (int)accountRegister:(int)accId expireTime:(int)expireTime;
 - (int)accountUnRegister:(int)accId;
 - (int)accountDelete:(int)accId;
+- (NSString * _Nonnull)accountGenInstId;
 
 - (int)callInvite:(SiprixDestData* _Nonnull)destData;
 - (int)callReject:(int)callId statusCode:(int)statusCode;
@@ -321,6 +361,8 @@ EXPORT
 - (int)callBye:(int)callId;
 
 - (int)callSetVideoRenderer:(int)callId renderer:(id<SiprixVideoRendererDelegate> _Nullable) renderer;
+- (NSString* _Nonnull)callGetSipHeader:(int)callId hdrName:(NSString * _Nonnull)hdrName;
+
 #if TARGET_OS_IPHONE
 - (int)switchCamera;
 - (int)callSetVideoWindow:(int)callId view : (UIView * _Nullable) view;
@@ -345,6 +387,11 @@ EXPORT
 - (int)dvcSetVideoDevice:(int)index;
 #endif//(TARGET_OS_OSX)
 - (int)dvcSetVideoParams:(SiprixVideoData* _Nonnull)vdoData;
+
+- (int)subscrCreate:(SiprixSubscrData * _Nonnull)subscrData;
+- (int)subscrDestroy:(int)subscrId;
+
+- (int)messageSend:(SiprixMsgData * _Nonnull)msgData;
 
 - (NSString* _Nonnull)getErrorText:(int)errCode;
 - (void)dealloc;
