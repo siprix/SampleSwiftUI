@@ -101,7 +101,8 @@ typedef NS_ENUM(NSInteger, AudioCodecs) {
     AudioCodecsPCMU   = 70,
     AudioCodecsPCMA   = 71,
     AudioCodecsDTMF   = 72,
-    AudioCodecsCN     = 73
+    AudioCodecsCN     = 73,
+    AudioCodecsG729   = 74,
 };
 
 typedef NS_ENUM(NSInteger, VideoCodecs) {
@@ -125,6 +126,12 @@ typedef NS_ENUM(NSInteger, VideoFrameRGBType) {
     VideoFrameRGBTypeRGBA
 };
 
+typedef NS_ENUM(NSInteger, UpgradeToVideoMode) {
+    UpgradeToVideoModeSendRecv = 0,
+    UpgradeToVideoModeRecvOnly = 1,
+    UpgradeToVideoModeInactive = 2,
+    UpgradeToVideoModeManual = 3
+};
 
 static const int kErrorCodeEOK = 0;
 static const NSInteger kInvalidId = 0;
@@ -139,7 +146,14 @@ EXPORT
 @property(nonatomic, retain) NSNumber * _Nullable tlsVerifyServer;
 @property(nonatomic, retain) NSNumber * _Nullable singleCallMode;
 @property(nonatomic, retain) NSNumber * _Nullable shareUdpTransport;
+@property(nonatomic, retain) NSNumber * _Nullable unregOnDestroy;
 @property(nonatomic, retain) NSArray  * _Nullable dnsServers;
+@property(nonatomic, retain) NSNumber * _Nullable useDnsSrv;
+@property(nonatomic, retain) NSNumber * _Nullable recordStereo;
+@property(nonatomic, retain) NSNumber * _Nullable enableVideoCall;
+@property(nonatomic, retain) NSNumber * _Nullable transpForceIPv4;
+@property(nonatomic, retain) NSNumber * _Nullable enableAes128Sha32;
+@property(nonatomic, retain) NSNumber * _Nullable enableVUmeter;
 @property(nonatomic, retain) NSString * _Nullable brandName;
 @end
 
@@ -159,6 +173,7 @@ EXPORT
 @property(nonatomic, retain) NSString * _Nullable tlsCaCertPath;
 @property(nonatomic, retain) NSNumber * _Nullable tlsUseSipScheme;
 @property(nonatomic, retain) NSNumber * _Nullable rtcpMuxEnabled;
+@property(nonatomic, retain) NSNumber * _Nullable iceEnabled;
 @property(nonatomic, retain) NSNumber * _Nullable keepAliveTime;
 @property(nonatomic, retain) NSNumber * _Nullable rewriteContactIp;
 @property(nonatomic, retain) NSNumber * _Nullable verifyIncomingCall;
@@ -167,12 +182,17 @@ EXPORT
 @property(nonatomic, retain) NSNumber * _Nullable transpPreferIPv6;
 @property(nonatomic, retain) NSString * _Nullable instanceId;
 @property(nonatomic, retain) NSString * _Nullable ringTonePath;
+@property(nonatomic, retain) NSString * _Nullable stunServer;
+@property(nonatomic, retain) NSString * _Nullable turnServer;
+@property(nonatomic, retain) NSString * _Nullable turnUser;
+@property(nonatomic, retain) NSString * _Nullable turnPassword;
+@property(nonatomic, retain) NSNumber * _Nullable upgradeToVideo;
 @property(nonatomic, retain) NSDictionary * _Nullable xheaders;
 @property(nonatomic, retain) NSDictionary * _Nullable xContactUriParams;
-@property(nonatomic, retain) NSArray * _Nullable aCodecs;
-@property(nonatomic, retain) NSArray * _Nullable vCodecs;
--(NSDictionary* _Nonnull)toDictionary;
--(void)fromDictionary:(NSDictionary* _Nonnull)dictionary;
+@property(nonatomic, retain) NSArray  * _Nullable aCodecs;
+@property(nonatomic, retain) NSArray  * _Nullable vCodecs;
+- (NSDictionary* _Nonnull)toDictionary;
+- (void)fromDictionary:(NSDictionary* _Nonnull)dictionary;
 @end
 
 EXPORT
@@ -194,6 +214,7 @@ EXPORT
 @property(nonatomic, retain) NSString* _Nonnull mimeSubtype;
 @property(nonatomic, retain) NSString* _Nonnull eventType;
 @property(nonatomic, retain) NSNumber* _Nullable expireTime;
+@property(nonatomic, retain) NSString* _Nullable body;
 @end
 
 EXPORT
@@ -202,6 +223,7 @@ EXPORT
 @property(nonatomic, assign) int fromAccId;
 @property(nonatomic, retain) NSString* _Nonnull toExt;
 @property(nonatomic, retain) NSString* _Nonnull body;
+@property(nonatomic, retain) NSString* _Nullable contentType;
 @end
 
 EXPORT
@@ -246,7 +268,7 @@ EXPORT
 - (int) height;
 - (VideoFrameRotation) rotation;
 - (void)convertToARGB:(VideoFrameRGBType)type dstBuffer:(uint8_t* _Nonnull)dstBuffer
-                    dstWidth:(int)dstWidth dstHeight:(int)dstHeight;
+                    dstWidth:(int)dstWidth dstHeight:(int)dstHeight dstStride:(int)dstStride;
 @end
 
 
@@ -300,17 +322,27 @@ EXPORT
             statusCode:(NSInteger)statusCode;
 
 - (void)onCallRedirected:(NSInteger)origCallId
-            relatedCallId:(NSInteger)relatedCallId
-            referTo:(NSString * _Nonnull)referTo;
+          relatedCallId:(NSInteger)relatedCallId
+          referTo:(NSString * _Nonnull)referTo;
+
+- (void)onCallVideoUpgraded:(NSInteger) callId
+          withVideo:(BOOL)withVideo;
+- (void)onCallVideoUpgradeRequested:(NSInteger) callId;
 
 - (void)onCallHeld:(NSInteger)callId
           holdState:(HoldState)holdState;
 
 - (void)onMessageSentState:(NSInteger)messageId success:(BOOL)success
           response:(NSString * _Nonnull)response;
-- (void)onMessageIncoming:(NSInteger)accId
+- (void)onMessageIncoming:(NSInteger)messageId accId:(NSInteger)accId
           hdrFrom:(NSString * _Nonnull)hdrFrom
           body:(NSString * _Nonnull)body;
+
+- (void)onSipNotify:(NSInteger)accId
+          hdrEvent:(NSString * _Nonnull)hdrFrom
+          body:(NSString * _Nonnull)body;
+- (void)onVuMeterLevel:(NSInteger)micLevel spkLevel:(NSInteger)spkLevel;
+
 @end
 
 
@@ -320,17 +352,20 @@ EXPORT
 - (int)initialize:(id<SiprixEventDelegate> _Nonnull)delegate
             iniData:(SiprixIniData* _Nonnull)iniData;
 - (int)unInitialize;
+- (BOOL)isInitialized;
 - (NSString* _Nonnull) version;
 - (NSString* _Nonnull) homeFolder;
 - (int) versionCode;
+- (void)writeLog:(NSString * _Nonnull)str;
 
 #if TARGET_OS_IPHONE
 - (void)enableCallKit:(BOOL)enable;
 - (void)activateSession:(AVAudioSession* _Nonnull)session;
 - (void)deactivateSession:(AVAudioSession* _Nonnull)session;
 - (BOOL)overrideAudioOutputToSpeaker:(BOOL)on;
- -(BOOL)routeAudioToBluetoth;
+ -(BOOL)routeAudioToBluetooth;
  -(BOOL)routeAudioToBuiltIn;
+ -(void)handleIncomingPush;
 #endif
 
 - (int)accountAdd:(SiprixAccData* _Nonnull)accData;
@@ -347,10 +382,12 @@ EXPORT
 - (int)callGetHoldState:(int)callId holdState:(SiprixHoldData* _Nonnull)data;
 - (int)callGetVideoState:(int)callId hasVideo:(SiprixVideoStateData * _Nonnull) data;
 - (int)callMuteMic:(int)callId mute:(BOOL)mute;
-- (int)callMuteCam:(int)callId mute : (BOOL)mute;
+- (int)callMuteCam:(int)callId mute:(BOOL)mute;
 - (int)callSendDtmf:(int)callId dtmfs:(NSString* _Nonnull)dtmfs
          durationMs:(int)durationMs intertoneGapMs:(int)intertoneGapMs method:(DtmfMethod)method;
 - (int)callSendDtmf:(int)callId dtmfs:(NSString* _Nonnull)dtmfs;
+- (int)callPlayTone:(int)callId toneType:(NSString * _Nonnull)toneType durationMs:(int)durationMs
+                                     playerData : (SiprixPlayerData * _Nonnull)data;
 - (int)callPlayFile:(int)callId pathToMp3File:(NSString* _Nonnull)pathToMp3File loop:(BOOL)loop
                                      playerData:(SiprixPlayerData* _Nonnull)data;
 - (int)callStopPlayFile:(int)playerId;
@@ -358,17 +395,21 @@ EXPORT
 - (int)callStopRecordFile:(int)callId;
 - (int)callTransferBlind:(int)callId toExt:(NSString* _Nonnull)toExt;
 - (int)callTransferAttended:(int)fromCallId toCallId:(int)toCallId;
+- (int)callAcceptVideoUpgrade:(int)callId withVideo:(BOOL)withVideo;
+- (int)callUpgradeToVideo:(int)callId;
 - (int)callBye:(int)callId;
 
 - (int)callSetVideoRenderer:(int)callId renderer:(id<SiprixVideoRendererDelegate> _Nullable) renderer;
 - (NSString* _Nonnull)callGetSipHeader:(int)callId hdrName:(NSString * _Nonnull)hdrName;
+- (NSString* _Nonnull)callGetStats:(int)callId;
+- (void)callStopRingtone;
 
 #if TARGET_OS_IPHONE
 - (int)switchCamera;
 - (int)callSetVideoWindow:(int)callId view : (UIView * _Nullable) view;
 - (UIView* _Nonnull)createVideoWindow;
 #else
-- (int)callSetVideoWindow:(int)callId view:(NSView* _Nullable) view;
+- (int)callSetVideoWindow:(int)callId view : (NSView * _Nullable) view;
 -(NSView* _Nonnull)createVideoWindow;
 #endif
 

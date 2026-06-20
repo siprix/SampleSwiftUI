@@ -80,9 +80,11 @@ enum ErrorCode : int32_t
     ECallCantReferAtt    = -1053,
     ECallReferAttSameId  = -1054,
     EConfRequires2Calls  = -1055,
-    ECallIsHolding       = -1056,    
+    ECallIsHolding       = -1056,
     ERndrAlreadyAssigned = -1057,
     ESipHeaderNotFound   = -1058,
+    EToneNameInvalid     = -1059,
+    ECallAlreadyHasVideo = -1060,
 
     EBadDeviceIndex      = -1070,
 
@@ -151,7 +153,8 @@ enum AudioCodec : uint8_t
     PCMU   = 70,
     PCMA   = 71,
     DTMF   = 72,
-    CN     = 73
+    CN     = 73,
+    G729   = 74,
 };
 
 enum VideoCodec : uint8_t
@@ -185,6 +188,13 @@ enum NetworkState : uint8_t
     NetworkSwitched = 2
 };
 
+enum UpgradeToVideoMode : uint8_t
+{
+    SendRecv = 0,
+    RecvOnly = 1,
+    Inactive = 2,
+    Manual   = 3
+};
 
 ////////////////////////////////////////////////////////////////////////////
 //Callbacks
@@ -204,11 +214,16 @@ typedef void(*OnCallProceeding)(CallId callId, const char* response);
 typedef void(*OnCallTransferred)(CallId callId, uint32_t statusCode);
 typedef void(*OnCallRedirected)(CallId origCallId, CallId relatedCallId, const char* referTo);
 typedef void(*OnCallDtmfReceived)(CallId callId, uint16_t tone);
+typedef void(*OnCallVideoUpgraded)(CallId callId, bool withVideo);
+typedef void(*OnCallVideoUpgradeRequested)(CallId callId);
 typedef void(*OnCallHeld)(CallId callId, HoldState state);
 typedef void(*OnCallSwitched)(CallId callId);
 
 typedef void(*OnMessageSentState)(MessageId messageId, bool success, const char* response);
-typedef void(*OnMessageIncoming)(AccountId accId, const char* hdrFrom, const char* body);
+typedef void(*OnMessageIncoming)(MessageId messageId, AccountId accId, const char* hdrFrom, const char* body);
+
+typedef void(*OnSipNotify)(AccountId accId, const char* hdrEvent, const char* body);
+typedef void(*OnVuMeterLevel)(int micLevel, int spkLevel);
 
 ////////////////////////////////////////////////////////////////////////////
 //Events handler interface
@@ -233,11 +248,16 @@ public:
     virtual void OnCallTransferred(CallId callId, uint32_t statusCode) = 0;
     virtual void OnCallRedirected(CallId origCallId, CallId relatedCallId, const char* referTo) = 0;
     virtual void OnCallDtmfReceived(CallId callId, uint16_t tone) = 0;
+    virtual void OnCallVideoUpgraded(CallId callId, bool withVideo) = 0;
+    virtual void OnCallVideoUpgradeRequested(CallId callId) = 0;
     virtual void OnCallHeld(CallId callId, HoldState state) = 0;
     virtual void OnCallSwitched(CallId callId) = 0;
 
     virtual void OnMessageSentState(MessageId messageId, bool success, const char* response) = 0;
-    virtual void OnMessageIncoming(AccountId accId, const char* hdrFrom, const char* body) = 0;
+    virtual void OnMessageIncoming(MessageId messageId, AccountId accId, const char* hdrFrom, const char* body) = 0;
+
+    virtual void OnSipNotify(AccountId accId, const char* hdrEvent, const char* body) = 0;
+    virtual void OnVuMeterLevel(int micLevel, int spkLevel) {}
 };
 
 
@@ -260,7 +280,7 @@ public:
     virtual Rotation rotation()const =0;
 
     virtual void ConvertToARGB(RGBType type, uint8_t* dstBuffer,
-        int dstWidth, int dstHeight) const = 0;
+        int dstWidth, int dstHeight, int dstStride=0) const = 0;
 };
 
 class IVideoRenderer
@@ -283,6 +303,7 @@ EXPORT bool        Module_IsInitialized(ISiprixModule* module);
 EXPORT const char* Module_HomeFolder(ISiprixModule* module);
 EXPORT const char* Module_Version(ISiprixModule* module);
 EXPORT uint32_t    Module_VersionCode(ISiprixModule* module);
+EXPORT void        Module_WriteLog(ISiprixModule* module, const char* text);
 
 ////////////////////////////////////////////////////////////////////////////
 //Manage Accounts
@@ -314,11 +335,17 @@ EXPORT ErrorCode Call_TransferBlind(ISiprixModule* module, CallId callId, const 
 EXPORT ErrorCode Call_TransferAttended(ISiprixModule* module, CallId fromCallId, CallId toCallId);
 EXPORT ErrorCode Call_SetVideoWindow(ISiprixModule* module, CallId callId, void* wnd);
 EXPORT ErrorCode Call_SetVideoRenderer(ISiprixModule* module, CallId callId, IVideoRenderer* r);
+EXPORT ErrorCode Call_AcceptVideoUpgrade(ISiprixModule* module, CallId callId, bool withVideo);
+EXPORT ErrorCode Call_UpgradeToVideo(ISiprixModule* module, CallId callId);
 EXPORT ErrorCode Call_Renegotiate(ISiprixModule* module, CallId callId);
 EXPORT ErrorCode Call_Bye(ISiprixModule* module, CallId callId);
-
 EXPORT ErrorCode Call_GetSipHeader(ISiprixModule* module, CallId callId, 
                                 const char* hdrName, char* hdrVal, uint32_t* hdrValLen);
+EXPORT ErrorCode Call_GetNonce(ISiprixModule* module, CallId callId, char* nonceVal, uint32_t* nonceValLen);
+EXPORT ErrorCode Call_GetStats(ISiprixModule* module, CallId callId, char* statsVal, uint32_t* statsValLen);
+EXPORT ErrorCode Call_PlayTone(ISiprixModule* module, CallId callId, const char* tone, 
+                                uint16_t durationMs, PlayerId* playerId);
+EXPORT ErrorCode Call_StopRingtone(ISiprixModule* module);
 
 ////////////////////////////////////////////////////////////////////////////
 //Mixer
@@ -372,11 +399,17 @@ EXPORT ErrorCode Callback_SetCallIncoming(ISiprixModule* module, OnCallIncoming 
 EXPORT ErrorCode Callback_SetCallDtmfReceived(ISiprixModule* module, OnCallDtmfReceived callback);
 EXPORT ErrorCode Callback_SetCallTransferred(ISiprixModule* module, OnCallTransferred callback);
 EXPORT ErrorCode Callback_SetCallRedirected(ISiprixModule* module, OnCallRedirected callback);
+EXPORT ErrorCode Callback_SetCallVideoUpgraded(ISiprixModule* module, OnCallVideoUpgraded callback);
+EXPORT ErrorCode Callback_SetCallVideoUpgradeRequested(ISiprixModule* module, OnCallVideoUpgradeRequested callback);
+
 EXPORT ErrorCode Callback_SetCallSwitched(ISiprixModule* module, OnCallSwitched callback);
 EXPORT ErrorCode Callback_SetCallHeld(ISiprixModule* module, OnCallHeld callback);
 
 EXPORT ErrorCode Callback_SetMessageSentState(ISiprixModule* module, OnMessageSentState callback);
 EXPORT ErrorCode Callback_SetMessageIncoming(ISiprixModule* module, OnMessageIncoming callback);
+
+EXPORT ErrorCode Callback_SetSipNotify(ISiprixModule* module, OnSipNotify callback);
+EXPORT ErrorCode Callback_SetVuMeterLevel(ISiprixModule* module, OnVuMeterLevel callback);
 
 EXPORT ErrorCode Callback_SetEventHandler(ISiprixModule* module, ISiprixEventHandler* handler);
 
@@ -417,6 +450,7 @@ EXPORT void     Acc_AddXHeader(AccData* acc, const char* header, const char* val
 EXPORT void     Acc_AddXContactUriParam(AccData* acc, const char* param, const char* value);
 EXPORT void     Acc_SetRewriteContactIp(AccData* acc, bool enabled);
 EXPORT void     Acc_SetVerifyIncomingCall(AccData* acc, bool enabled);
+EXPORT void     Acc_SetUpgradeToVideoMode(AccData* acc, UpgradeToVideoMode mode);
 
 EXPORT void     Acc_AddAudioCodec(AccData* acc, AudioCodec codec);
 EXPORT void     Acc_AddVideoCodec(AccData* acc, VideoCodec codec);
@@ -440,6 +474,13 @@ EXPORT void     Ini_SetRtpStartPort(IniData* ini, uint16_t rtpStartPort);
 EXPORT void     Ini_SetHomeFolder(IniData* ini, const char* homeFolder);
 EXPORT void     Ini_SetBrandName(IniData* ini, const char* brandName);
 EXPORT void     Ini_AddDnsServer(IniData* ini, const char* dns);
+EXPORT void     Ini_SetUseDnsSrv(IniData* ini, bool enabled);
+EXPORT void     Ini_SetRecordStereo(IniData* ini, bool enabled);
+EXPORT void     Ini_SetUnregOnDestroy(IniData* ini, bool enabled);
+EXPORT void     Ini_SetVideoCallEnabled(IniData* ini, bool enabled);
+EXPORT void     Ini_SetTranspForceIPv4(IniData* ini, bool enabled);
+EXPORT void     Ini_SetAes128Sha32Enabled(IniData* ini, bool enabled);
+EXPORT void     Ini_SetVUmeterEnabled(IniData* ini, bool enabled);
 
 ////////////////////////////////////////////////////////////////////////////
 //Set fields of Dest's data
@@ -459,6 +500,7 @@ EXPORT void     Vdo_SetFramerate(VideoData* vdo, int fps);
 EXPORT void     Vdo_SetBitrate(VideoData* vdo, int bitrateKbps);
 EXPORT void     Vdo_SetHeight(VideoData* vdo, int height);
 EXPORT void     Vdo_SetWidth(VideoData* vdo, int width);
+EXPORT void     Vdo_SetRotation(VideoData* vdo, int degrees);
 
 ////////////////////////////////////////////////////////////////////////////
 //Set fields of SubscrData
@@ -469,6 +511,7 @@ EXPORT void     Subscr_SetAccountId(SubscrData* sub, AccountId accId);
 EXPORT void     Subscr_SetMimeSubtype(SubscrData* sub, const char* subtype);
 EXPORT void     Subscr_SetEventType(SubscrData* sub, const char* type);
 EXPORT void     Subscr_SetExpireTime(SubscrData* sub, uint32_t expireTime);
+EXPORT void     Subscr_SetBody(SubscrData* sub, const char* body);
 
 ////////////////////////////////////////////////////////////////////////////
 //Set fields of MsgData
@@ -476,6 +519,7 @@ EXPORT MsgData* Msg_GetDefault();
 EXPORT void     Msg_SetExtension(MsgData* msg, const char* extension);
 EXPORT void     Msg_SetAccountId(MsgData* msg, AccountId accId);
 EXPORT void     Msg_SetBody(MsgData* msg, const char* body);
+EXPORT void     Msg_SetContentType(MsgData* msg, const char* contentType);
 
 ////////////////////////////////////////////////////////////////////////////
 //Get error text
