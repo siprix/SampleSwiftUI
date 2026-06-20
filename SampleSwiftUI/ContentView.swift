@@ -567,7 +567,7 @@ struct CallAddView: View {
     
     init() {
         ext = "1012"//"u113355448"
-        accId = accList.selectedAccId
+        accId = accList.accounts.isEmpty ? kInvalidId : accList.accounts[0].id
     }
     
     var body: some View {

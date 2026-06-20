@@ -7,6 +7,7 @@
 import Foundation
 import SwiftUI
 import CallKit
+import PushKit
 import AVFoundation
 import siprix
 
@@ -65,6 +66,12 @@ class AccountsListModel : ObservableObject {
     @discardableResult
     private func addInternal(_ accData : SiprixAccData) -> Int32 {
         logs?.printl("Adding account: \(accData.sipExtension)@\(accData.sipServer)")
+        
+        //Add push token (send to SIP server as separate header in the REGISTER request)
+        let token = SiprixModel.shared.pushKitProvider?.getToken()
+        if(token != nil) {
+            accData.xheaders = ["X-Token" : token!]
+        }
         
         let errCode = siprixModule_.accountAdd(accData);
         if(errCode==kErrorCodeEOK) {
@@ -499,7 +506,7 @@ class CallModel : ObservableObject, Identifiable, Equatable {
     }
        
     public func routeAudioToBluetoth() {
-        let res = siprixModule_.routeAudioToBluetoth()
+        let res = siprixModule_.routeAudioToBluetooth()
         if(res) { self.isSpeakerOn = false }
         logs?.printl("RouteAudioToBluetoth \(res ? "success" : "error")")
     }
@@ -633,18 +640,27 @@ class CallsListModel : ObservableObject {
         return calls.first(where: {($0.from == from)&&($0.to == to)&&($0.id == 0) })
     }
     
-    public func onPushIncoming(_ withVideo:Bool, hdrFrom:String, hdrTo:String) {
-        logs?.printl("onPushIncoming hdrFrom:\(hdrFrom) hdrTo:\(hdrTo)")
+    public func didReceiveIncomingPush(_ pushPayload : [AnyHashable : Any]) {
+        logs?.printl("onPushIncoming dictionaryPayload:\(pushPayload)")
+        /*
+         //TODO add impl
+        
+        //Get data from payload
+        let apsPayload = pushPayload["aps"] as NSDictionary? as! [String:Any]?
+        let pushHint = apsPayload?["pushHint"] ?? "pushHint"
+        let genericHandle =  apsPayload?["callerNumber"] ?? "genericHandle"
+        let localizedCallerName = apsPayload?["callerName"] ?? "callerName"
+        let withVideo = apsPayload?["withVideo"] ?? false
         
         //Add temporary call, present UI and wait INVITE - see 'onIncomingCall'
         let call = CallModel(siprixModule_, logs:logs, callKit:callKit, callId:kInvalidId, accId:kInvalidId,
                                  from:hdrFrom, to:hdrTo, withVideo:withVideo)
-        
         calls.append(call)
         
         callKit?.cxActionNewIncomingCall(call)
+        */
     }
-    
+
     #if os(iOS)
     func activateSession(_ audioSession: AVAudioSession) {
         siprixModule_.activate(audioSession)
@@ -798,6 +814,7 @@ class NetworkModel : ObservableObject {
 class SiprixModel : NSObject, SiprixEventDelegate {
     private let siprixModule_  : SiprixModule
     private let siprixCxProvider : SiprixCxProvider?
+    public  let pushKitProvider : SiprixPushRegistry?
     public  let accountsListModel : AccountsListModel
     public  let callsListModel : CallsListModel
     public  let networkModel : NetworkModel
@@ -824,8 +841,10 @@ class SiprixModel : NSObject, SiprixEventDelegate {
         //If callKit support not required - set to nil
         #if os(iOS) && !targetEnvironment(simulator)           
         siprixCxProvider = SiprixCxProvider(callsListModel, logs:logs, singleCallMode:singleCallMode)
+        pushKitProvider  = SiprixPushRegistry(callsListModel)
         #else
         siprixCxProvider = nil
+        pushKitProvider  = nil
         #endif
         
         //Ringer (create only when CallKit disabled)
@@ -905,6 +924,7 @@ class SiprixModel : NSObject, SiprixEventDelegate {
             self.accountsListModel.onAccountRegState(accId, regState: regState, response: response)
         }
     }
+
     public func onNetworkState(_ name: String, netState: NetworkState) {
         DispatchQueue.main.async {
             self.networkModel.onNetworkState(name, netState:netState)
@@ -973,6 +993,12 @@ class SiprixModel : NSObject, SiprixEventDelegate {
         }
     }
 
+    public func onCallVideoUpgraded(_ callId: Int, withVideo:Bool) {
+    }
+    
+    public func onCallVideoUpgradeRequested(_ callId: Int) {
+    }
+
     public func onCallHeld(_ callId: Int, holdState: HoldState) {
         DispatchQueue.main.async {
             self.callsListModel.onCallHeld(callId, holdState:holdState)
@@ -987,13 +1013,74 @@ class SiprixModel : NSObject, SiprixEventDelegate {
         //Handle message sent state
     }
     
-    func onMessageIncoming(_ accId: Int, hdrFrom: String, body: String) {
+   func onMessageIncoming(_ messageId: Int, accId: Int, hdrFrom: String, body: String) {
         //handle received message request
     }
+    
+    public func onSipNotify(_ accId:Int, hdrEvent:String, body:String) {
+    }
+    
+    public func onVuMeterLevel(_ micLevel:Int, spkLevel:Int) {
         
+    }
+
 }//SiprixModel
 
 #if os(iOS)
+///////////////////////////////////////////////////////////////////////////////////////////////////
+///SiprixPushRegistry
+
+class SiprixPushRegistry : NSObject, PKPushRegistryDelegate {
+    private let _callsListModel : CallsListModel
+    //private var _eventHandler : SiprixEventHandler
+    private let _registry: PKPushRegistry
+    private var _token: String?
+    
+    init(_ callsListModel : CallsListModel) {
+        _callsListModel = callsListModel
+        _registry = PKPushRegistry(queue: .main)
+        super.init()
+        
+        _registry.delegate = self
+        _registry.desiredPushTypes = [.voIP]
+    }
+    
+    public func getToken() -> String? {
+        if(_token == nil) {
+            let data = _registry.pushToken(for: .voIP)
+            _token = (data != nil) ? format(data!) : nil
+        }
+        return _token
+    }
+    
+    func format(_ token: Data) -> String? {
+        return token.map { String(format: "%02x", $0) }.joined()
+    }
+    
+    public func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {
+        if(type == .voIP) {
+            _token = format(pushCredentials.token)
+        }
+    }
+
+    public func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
+        if(type == .voIP) {
+            _token = nil
+        }
+    }
+           
+    public func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload:
+                                PKPushPayload, for type: PKPushType, completion: @escaping () -> Void) {
+        print("siprix: PushRegistry: didReceiveIncomingPushWith \(type)")
+        if(type == .voIP) {
+            _callsListModel.didReceiveIncomingPush(payload.dictionaryPayload)
+        }
+        completion()
+    }
+
+}//SiprixPushRegistry
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///SiprixCxProvider
 
